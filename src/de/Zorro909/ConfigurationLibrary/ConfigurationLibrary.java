@@ -52,7 +52,7 @@ public class ConfigurationLibrary {
                     .getAnnotation(ConfigContainer.class);
             Configuration last = null;
             for (Config config : container.value()) {
-                if (!isConfigLoaded(containers.getName(), config.value())) {
+                if (!isConfigLoaded(getPackageName(containers.getName()), config.value())) {
                     try {
                         last = ConfigurationBuilder.createConfig(config, last);
                     } catch (NoSuchMethodException e) {

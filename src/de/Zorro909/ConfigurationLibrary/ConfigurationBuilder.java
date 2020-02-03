@@ -4,12 +4,16 @@ import java.lang.reflect.InvocationTargetException;
 
 public class ConfigurationBuilder {
 
-    public static Configuration createConfig(Config configAnnotation, Configuration previouslyLoaded)
-            throws NoSuchMethodException {
+    public static Configuration createConfig(Config configAnnotation,
+            Configuration previouslyLoaded) throws NoSuchMethodException {
         Class<? extends Configuration> configType = configAnnotation.type();
         try {
-            return configType.getConstructor(Config.class, Configuration.class)
+            Configuration conf = configType.getConstructor(Config.class, Configuration.class)
                     .newInstance(configAnnotation, previouslyLoaded);
+            if (!configAnnotation.subregion().isEmpty()) {
+                return conf.getRegion(configAnnotation.subregion());
+            }
+            return conf;
         } catch (InstantiationException | IllegalAccessException | IllegalArgumentException
                 | InvocationTargetException | NoSuchMethodException | SecurityException e) {
             NoSuchMethodException nsme = new NoSuchMethodException(

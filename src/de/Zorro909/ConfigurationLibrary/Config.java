@@ -13,6 +13,8 @@ public @interface Config {
 
     String value();
 
+    String subregion() default "";
+    
     Class<? extends Configuration> type() default YamlConfiguration.class;
     
     boolean globalDefault() default false;
