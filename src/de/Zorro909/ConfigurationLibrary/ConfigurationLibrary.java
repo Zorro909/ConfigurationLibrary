@@ -12,6 +12,7 @@ import org.reflections.scanners.FieldAnnotationsScanner;
 import org.reflections.scanners.SubTypesScanner;
 import org.reflections.scanners.TypeAnnotationsScanner;
 
+import de.Zorro909.AnnotationProcessor.AnnotationProcessor;
 import de.Zorro909.ConfigurationLibrary.Serializers.Serializer;
 import de.Zorro909.ConfigurationLibrary.Serializers.Serializers;
 
@@ -31,51 +32,24 @@ public class ConfigurationLibrary {
     private static HashMap<String, HashMap<String, Configuration>> loadedConfigurations = new HashMap<>();
 
     private static ArrayList<String> registeredPackageNames = new ArrayList<>();
+    private static Thread autoReloadThread = null;
 
     public static boolean registerLibrary(String packageName) {
-        Reflections reflections = new Reflections(packageName, new SubTypesScanner(),
+        Reflections reflections = new Reflections(packageName, new SubTypesScanner(false),
                 new TypeAnnotationsScanner(), new FieldAnnotationsScanner());
         searchForNewSerializers(reflections);
-
-        Set<Class<?>> configSelectingClasses = reflections.getTypesAnnotatedWith(Config.class);
-        Set<Class<?>> configContainerClasses = reflections
-                .getTypesAnnotatedWith(ConfigContainer.class);
-        if (configSelectingClasses.size() == 0 && configContainerClasses.size() == 0) {
-            System.err.println("ERROR: No Config Definition found!");
-            return false;
-        }
         registeredPackageNames.add(packageName);
-        HashMap<String, Configuration> configurations = new HashMap<>();
-        loadedConfigurations.put(packageName, configurations);
-        for (Class containers : configContainerClasses) {
-            ConfigContainer container = (ConfigContainer) containers
-                    .getAnnotation(ConfigContainer.class);
-            Configuration last = null;
-            for (Config config : container.value()) {
-                if (!isConfigLoaded(getPackageName(containers.getName()), config.value())) {
-                    try {
-                        last = ConfigurationBuilder.createConfig(config, last);
-                    } catch (NoSuchMethodException e) {
-                        e.printStackTrace();
-                        return false;
-                    }
-                } else {
-                    last = getConfiguration(packageName, config.value());
-                }
-                configurations.put(last.getIdentifier(), last);
-                if (config.globalDefault()) {
-                    defaultConfig.put(packageName, last);
-                }
-            }
-            defaultClassConfigurations.put(containers, last);
-        }
 
-        for (Class clazz : configSelectingClasses) {
-            Config config = (Config) clazz.getAnnotation(Config.class);
+        AnnotationProcessor<Config> configProcessor = new AnnotationProcessor<>(Config.class);
+        final HashMap<String, Configuration> configurations = new HashMap<>();
+        loadedConfigurations.put(packageName, configurations);
+        configProcessor.registerClassAnnotationVerifier((Config config, Class clazz) -> {
+            System.out.println("Found ConfigClass");
             Configuration conf = null;
             if (!isConfigLoaded(getPackageName(clazz.getName()), config.value())) {
                 try {
-                    conf = ConfigurationBuilder.createConfig(config, null);
+                    conf = ConfigurationBuilder.createConfig(config,
+                            getDefaultConfiguration(clazz));
                 } catch (NoSuchMethodException e) {
                     e.printStackTrace();
                     return false;
@@ -88,40 +62,71 @@ public class ConfigurationLibrary {
                 defaultConfig.put(packageName, conf);
             }
             defaultClassConfigurations.put(clazz, conf);
-        }
+            return true;
+        });
 
-        Set<Field> configFields = reflections.getFieldsAnnotatedWith(Config.class);
-        for (Field configField : configFields) {
-            Config annot = configField.getAnnotation(Config.class);
+        configProcessor.registerFieldSetter((annot, field, container) -> {
             if (!isConfigLoaded(packageName, annot.value())) {
                 try {
                     Configuration conf = ConfigurationBuilder.createConfig(annot,
-                            getDefaultConfiguration(configField.getDeclaringClass()));
+                            getDefaultConfiguration(container));
                     configurations.put(conf.getIdentifier(), conf);
-                    if (configField.getType().isAssignableFrom(conf.getClass())) {
-                        configField.set(conf, null);
+                    if (field.getType().isAssignableFrom(conf.getClass())) {
+                        return conf;
                     }
-                } catch (NoSuchMethodException | IllegalArgumentException
-                        | IllegalAccessException e) {
+                    return null;
+                } catch (NoSuchMethodException | IllegalArgumentException e) {
                     e.printStackTrace();
-                    return false;
+                    return null;
                 }
+            } else {
+                return getConfiguration(packageName, annot.value());
             }
-        }
+        });
+        configProcessor.processPackage(packageName);
 
-        Set<Field> fields = reflections.getFieldsAnnotatedWith(AutoConfigured.class);
-        for (Field field : fields) {
+        AnnotationProcessor<AutoConfigured> autoConfiguredProcessor = new AnnotationProcessor<>(
+                AutoConfigured.class);
+
+        autoConfiguredProcessor.registerFieldSetter((annot, field, container, instance) -> {
             if (Modifier.isStatic(field.getModifiers())) {
-                loadField(field.getDeclaringClass(), field);
+                System.out.println("Load Field " + field.getName());
+                return loadField(container, annot, field, instance);
             } else {
                 System.err.println("ERROR: Field " + field.getName()
                         + " is a non static Field annotated with @AutoConfigured which is unsupported!");
+                return null;
             }
-        }
+        });
+        autoConfiguredProcessor.processPackage(packageName);
         return true;
     }
 
     public static void save(String packageName) {
+        for (List<Field> fields : staticFields.values()) {
+            for (Field field : fields) {
+                AutoConfigured annot = field.getAnnotation(AutoConfigured.class);
+                String path = annot.path();
+                Class<?> type = field.getType();
+                Configuration config = null;
+                if (field.isAnnotationPresent(Config.class)) {
+                    Config annotation = field.getAnnotation(Config.class);
+                    config = getConfiguration(getPackageName(field.getDeclaringClass().getName()),
+                            annotation.value());
+                } else {
+                    config = getDefaultConfiguration(field.getDeclaringClass());
+                }
+                try {
+                    if (List.class.isAssignableFrom(type)) {
+                        config.setList(path, (List) field.get(null));
+                    } else {
+                        config.set(path, field.get(null));
+                    }
+                } catch (IllegalArgumentException | IllegalAccessException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
         for (Configuration conf : loadedConfigurations.get(packageName).values()) {
             if (conf instanceof ConfigurationPane)
                 continue;
@@ -163,12 +168,13 @@ public class ConfigurationLibrary {
                 && loadedConfigurations.get(packageName).containsKey(identifier);
     }
 
-    static void loadField(Class classToLoad, Field field) {
+    static Object loadField(Class classToLoad, AutoConfigured annot, Field field, Object instance) {
         if (!staticFields.containsKey(classToLoad)) {
             staticFields.put(classToLoad, new ArrayList<Field>());
+        }
+        if (!staticFields.get(classToLoad).contains(field)) {
             staticFields.get(classToLoad).add(field);
         }
-        AutoConfigured annot = field.getAnnotation(AutoConfigured.class);
         String path = annot.path();
         Class<?> type = field.getType();
         Object returnedObject = null;
@@ -185,7 +191,7 @@ public class ConfigurationLibrary {
                 System.err.println("List Field " + field.getName() + " from Class "
                         + classToLoad.getSimpleName()
                         + " has no annotated Type! (Ex: @AutoConfigured(value='path', type=YourType.class))");
-                return;
+                return null;
             }
             type = annot.type();
             returnedObject = config.getList(path, type);
@@ -194,25 +200,26 @@ public class ConfigurationLibrary {
             returnedObject = config.get(path, type);
         }
         if (returnedObject != null) {
+            return returnedObject;
+        } else {
+            if (instance != null) {
+                throw new RuntimeException("Instanced AutoConfigured Values like " + annot.path()
+                        + " always need to have a Value in the Config!");
+            }
             try {
-                field.set(null, returnedObject);
+                returnedObject = field.get(null);
+                System.out.println(returnedObject);
+                if (list) {
+                    config.setList(path, (List) returnedObject);
+                } else {
+                    config.set(path, returnedObject);
+                }
+                return returnedObject;
             } catch (IllegalArgumentException | IllegalAccessException e) {
                 // TODO Auto-generated catch block
                 e.printStackTrace();
             }
-        } else {
-            try {
-                Object defaultValue = field.get(null);
-                if (defaultValue != null) {
-                    if (list) {
-                        config.setList(path, (List) defaultValue);
-                    } else {
-                        config.set(path, defaultValue);
-                    }
-                }
-            } catch (IllegalArgumentException | IllegalAccessException e) {
-                e.printStackTrace();
-            }
+            return null;
         }
     }
 
@@ -228,5 +235,30 @@ public class ConfigurationLibrary {
     private static String getPackageName(String name) {
         return registeredPackageNames.stream().filter((packageName) -> name.startsWith(packageName))
                 .findFirst().get();
+    }
+
+    public static void enableAutoreload(String packageName) {
+        enableAutoreload(packageName, 60);
+    }
+
+    public static void enableAutoreload(final String packageName, final int reloadTimeSeconds) {
+        autoReloadThread = new Thread(() -> {
+            while (true) {
+                try {
+                    Thread.sleep(reloadTimeSeconds * 1000);
+                } catch (InterruptedException e) {
+                    // TODO Auto-generated catch block
+                    e.printStackTrace();
+                }
+                loadedConfigurations.clear();
+                for (Class clazz : staticFields.keySet()) {
+                    for (Field field : staticFields.get(clazz)) {
+                        loadField(clazz, field.getAnnotation(AutoConfigured.class), field, null);
+                    }
+                }
+            }
+        });
+        autoReloadThread.setDaemon(true);
+        autoReloadThread.start();
     }
 }

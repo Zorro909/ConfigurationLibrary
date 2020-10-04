@@ -2,6 +2,9 @@ package de.Zorro909.ConfigurationLibrary;
 
 import java.util.List;
 
+import de.Zorro909.ConfigurationLibrary.Serializers.SerializedObject;
+import de.Zorro909.ConfigurationLibrary.Serializers.SerializedObjectStructure;
+
 public class ConfigurationPane extends ConfigurationAbstraction {
 
     private Configuration parent;
@@ -14,6 +17,14 @@ public class ConfigurationPane extends ConfigurationAbstraction {
         }
         this.parent = parent;
         this.prefix = prefix;
+    }
+
+    public boolean exists() {
+        return parent.exists(prefix);
+    }
+
+    public boolean exists(String path) {
+        return parent.exists(prefix + "." + path);
     }
 
     @Override
@@ -96,6 +107,26 @@ public class ConfigurationPane extends ConfigurationAbstraction {
         } else {
             return prefix;
         }
+    }
+
+    @Override
+    public void setSerializedObject(String path, SerializedObject sObj) {
+        parent.setSerializedObject(prefix + "." + path, sObj);
+    }
+
+    @Override
+    public void setSerializedObjectList(String path, List<SerializedObject> sObjects) {
+        parent.setSerializedObjectList(prefix + "." + path, sObjects);
+    }
+
+    @Override
+    public List<SerializedObject> getList(String path, SerializedObjectStructure sObjectStructure) {
+        return parent.getList(prefix + "." + path, sObjectStructure);
+    }
+
+    @Override
+    public SerializedObject get(String path, SerializedObjectStructure sObjectStructure) {
+        return parent.get(prefix + "." + path, sObjectStructure);
     }
 
 }

@@ -4,10 +4,12 @@ import de.Zorro909.ConfigurationLibrary.ConfigurationPane;
 
 public interface Serializer<Type> {
 
-    public void serialize(Type object, ConfigurationPane configPane);
+    public SerializedObject serialize(Type object);
 
-    public Type deserialize(ConfigurationPane configPane);
+    public Type deserialize(SerializedObject object);
 
     public Class<Type> getSerializedType();
-    
+
+    public SerializedObjectStructure getObjectStructure();
+
 }

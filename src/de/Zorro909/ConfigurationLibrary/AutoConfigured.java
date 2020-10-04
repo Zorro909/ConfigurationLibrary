@@ -10,7 +10,8 @@ public @interface AutoConfigured {
      * Config Path
      */
     String path();
-    
+
     Class<?> type() default AutoConfigured.class;
 
+    boolean readOnly() default false;
 }

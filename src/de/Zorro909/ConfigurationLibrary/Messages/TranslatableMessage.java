@@ -2,70 +2,55 @@ package de.Zorro909.ConfigurationLibrary.Messages;
 
 import java.util.HashMap;
 
-import org.bukkit.entity.Player;
-
-import net.md_5.bungee.api.chat.ComponentBuilder;
-import net.md_5.bungee.api.chat.TextComponent;
-
 public class TranslatableMessage {
 
-    private HashMap<Language, String> translatedVersions;
+	private TranslatableMessage prefix = null, suffix = null;
 
-    public TranslatableMessage(HashMap<Language, String> translatedVersions) {
-        this.translatedVersions = translatedVersions;
-    }
+	private HashMap<Language, String> translatedVersions;
 
-    public HashMap<Language, String> getTranslatedVersions() {
-        return translatedVersions;
-    }
+	public TranslatableMessage(String englishVersion) {
+		this.translatedVersions = new HashMap<>();
+		translatedVersions.put(Language.ENGLISH, englishVersion);
+	}
 
-    public void sendMessage(Player player, Language forcedLanguage) {
-        String message = defaultReplaces(player, getText(forcedLanguage));
-        player.sendMessage(TextComponent.fromLegacyText(message));
-    }
+	public TranslatableMessage(HashMap<Language, String> translatedVersions) {
+		this.translatedVersions = translatedVersions;
+	}
 
-    public void sendMessageWithPrefix(Player player, TranslatableMessage prefix,
-            Language forcedLanguage) {
-        ComponentBuilder cbuilder = new ComponentBuilder("");
-        cbuilder.appendLegacy(prefix.getText(forcedLanguage));
-        cbuilder.appendLegacy(defaultReplaces(player, getText(forcedLanguage)));
-        player.sendMessage(cbuilder.create());
-    }
+	public void setPrefix(TranslatableMessage prefix) {
+		this.prefix = prefix;
+	}
 
-    private String defaultReplaces(Player player, String text) {
-        text = text.replace("$player", player.getDisplayName());
-        text = text.replace("$realPlayer", player.getName());
-        text = text.replace("$world", player.getWorld().getName());
-        return text;
-    }
+	public void setSuffix(TranslatableMessage suffix) {
+		this.suffix = suffix;
+	}
 
-    public void sendMessageWithReplaces(Player player, Language forcedLanguage,
-            StringReplace... replaces) {
-        String message = defaultReplaces(player, getText(forcedLanguage, replaces));
-        player.sendMessage(TextComponent.fromLegacyText(message));
-    }
+	public HashMap<Language, String> getTranslatedVersions() {
+		return translatedVersions;
+	}
 
-    public void sendMessageWithPrefixWithReplaces(Player player, TranslatableMessage prefix,
-            Language forcedLanguage, StringReplace... replaces) {
-        ComponentBuilder cbuilder = new ComponentBuilder("");
-        cbuilder.appendLegacy(prefix.getText(forcedLanguage));
-        cbuilder.appendLegacy(defaultReplaces(player, getText(forcedLanguage, replaces)));
-        player.sendMessage(cbuilder.create());
-    }
-
-    private String getText(Language forcedLanguage, StringReplace... replaces) {
-        String text = null;
-        if (translatedVersions.containsKey(forcedLanguage)) {
-            text = translatedVersions.get(forcedLanguage);
-        } else {
-            text = translatedVersions.get(Language.ENGLISH);
-        }
-        if (text != null) {
-            for (int i = 0; i < replaces.length; i++) {
-                text = replaces[i].convert(text);
-            }
-        }
-        return text;
-    }
+	public String getText(Language forcedLanguage, StringReplace... replaces) {
+		String text = null;
+		if (translatedVersions.containsKey(forcedLanguage)) {
+			text = translatedVersions.get(forcedLanguage);
+		} else {
+			text = translatedVersions.get(Language.ENGLISH);
+		}
+		if (text != null) {
+			for (int i = 0; i < replaces.length; i++) {
+				text = replaces[i].convert(text);
+			}
+		} else {
+			text = "Something went wrong!";
+		}
+		if (prefix != null && suffix != null) {
+			text = prefix.getText(forcedLanguage, replaces) + text + suffix.getText(forcedLanguage, replaces);
+		} else if (prefix != null) {
+			text = prefix.getText(forcedLanguage, replaces) + text;
+		} else if (suffix != null) {
+			text += suffix.getText(forcedLanguage, replaces);
+		}
+		return text;
+	}
 
 }
